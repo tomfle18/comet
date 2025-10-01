@@ -282,7 +282,9 @@ class TorrentManager:
         cached_only: int,
         remove_trash: int,
     ):
-        ranked_torrents = set()
+        preferred_torrents = []
+        other_torrents = []
+
         for info_hash, torrent in self.torrents.items():
             if (
                 cached_only
@@ -295,7 +297,6 @@ class TorrentManager:
                 continue
 
             parsed = torrent["parsed"]
-
             raw_title = torrent["title"]
 
             is_fetchable, failed_keys = check_fetch(parsed, rtn_settings)
@@ -307,24 +308,34 @@ class TorrentManager:
                     or rank < rtn_settings.options["remove_ranks_under"]
                 ):
                     continue
+            
+            is_preferred = False
+            if rtn_settings.languages.preferred and parsed.languages:
+                if any(lang in rtn_settings.languages.preferred for lang in parsed.languages):
+                    is_preferred = True
 
             try:
-                ranked_torrents.add(
-                    Torrent(
-                        infohash=info_hash,
-                        raw_title=raw_title,
-                        data=parsed,
-                        fetch=is_fetchable,
-                        rank=rank,
-                        lev_ratio=0.0,
-                    )
+                torrent_obj = Torrent(
+                    infohash=info_hash,
+                    raw_title=raw_title,
+                    data=parsed,
+                    fetch=is_fetchable,
+                    rank=rank,
+                    lev_ratio=0.0,
                 )
+                if is_preferred:
+                    preferred_torrents.append(torrent_obj)
+                else:
+                    other_torrents.append(torrent_obj)
+
             except Exception:
                 pass
+        
+        sorted_preferred = sort_torrents(set(preferred_torrents), max_results_per_resolution)
+        sorted_other = sort_torrents(set(other_torrents), max_results_per_resolution)
+        
+        self.ranked_torrents = sorted_preferred + sorted_other
 
-        self.ranked_torrents = sort_torrents(
-            ranked_torrents, max_results_per_resolution
-        )
 
     async def get_and_cache_debrid_availability(self, session: aiohttp.ClientSession):
         info_hashes = list(self.torrents.keys())
